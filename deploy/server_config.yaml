@@ -1,0 +1,240 @@
+apiVersion: mlops.seldon.io/v1alpha1
+kind: ServerConfig
+metadata:
+  name: triton
+  namespace: seldon-mesh
+spec:
+  podSpec:
+    containers:
+      - image: docker.io/seldonio/seldon-rclone:2.6.0
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            httpGet:
+              path: terminate
+              port: 9007
+        name: rclone
+        ports:
+          - containerPort: 5572
+            name: rclone
+            protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          tcpSocket:
+            port: 5572
+          timeoutSeconds: 1
+        resources:
+          limits:
+            memory: 20Gi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        volumeMounts:
+          - mountPath: /mnt/agent
+            name: triton-models
+      - args:
+          - '--tracing-config-path=/mnt/tracing/tracing.json'
+        command:
+          - /bin/agent
+        env:
+          - name: SELDON_SERVER_CAPABILITIES
+            value: triton,dali,fil,onnx,openvino,python,pytorch,tensorflow,tensorrt
+          - name: SELDON_MODEL_INFERENCE_LAG_THRESHOLD
+            value: '30'
+          - name: SELDON_MODEL_INACTIVE_SECONDS_THRESHOLD
+            value: '600'
+          - name: SELDON_SCALING_STATS_PERIOD_SECONDS
+            value: '20'
+          - name: SELDON_OVERCOMMIT_PERCENTAGE
+            value: '10'
+          - name: CONTROL_PLANE_SECURITY_PROTOCOL
+            value: PLAINTEXT
+          - name: CONTROL_PLANE_CLIENT_TLS_SECRET_NAME
+            value: seldon-controlplane-client
+          - name: CONTROL_PLANE_SERVER_TLS_SECRET_NAME
+            value: seldon-controlplane-server
+          - name: CONTROL_PLANE_CLIENT_TLS_KEY_LOCATION
+            value: /tmp/certs/cpc/tls.key
+          - name: CONTROL_PLANE_CLIENT_TLS_CRT_LOCATION
+            value: /tmp/certs/cpc/tls.crt
+          - name: CONTROL_PLANE_CLIENT_TLS_CA_LOCATION
+            value: /tmp/certs/cpc/ca.crt
+          - name: CONTROL_PLANE_SERVER_TLS_CA_LOCATION
+            value: /tmp/certs/cps/ca.crt
+          - name: ENVOY_SECURITY_PROTOCOL
+            value: PLAINTEXT
+          - name: ENVOY_UPSTREAM_SERVER_TLS_SECRET_NAME
+            value: seldon-upstream-server
+          - name: ENVOY_UPSTREAM_CLIENT_TLS_SECRET_NAME
+            value: seldon-upstream-client
+          - name: ENVOY_UPSTREAM_SERVER_TLS_KEY_LOCATION
+            value: /tmp/certs/dus/tls.key
+          - name: ENVOY_UPSTREAM_SERVER_TLS_CRT_LOCATION
+            value: /tmp/certs/dus/tls.crt
+          - name: ENVOY_UPSTREAM_SERVER_TLS_CA_LOCATION
+            value: /tmp/certs/dus/ca.crt
+          - name: ENVOY_UPSTREAM_CLIENT_TLS_CA_LOCATION
+            value: /tmp/certs/duc/ca.crt
+          - name: SELDON_SERVER_HTTP_PORT
+            value: '9000'
+          - name: SELDON_SERVER_GRPC_PORT
+            value: '9500'
+          - name: SELDON_REVERSE_PROXY_HTTP_PORT
+            value: '9001'
+          - name: SELDON_REVERSE_PROXY_GRPC_PORT
+            value: '9501'
+          - name: AGENT_TLS_SECRET_NAME
+            value: ''
+          - name: AGENT_TLS_FOLDER_PATH
+            value: ''
+          - name: SELDON_SCHEDULER_HOST
+            value: seldon-scheduler
+          - name: SELDON_SCHEDULER_PORT
+            value: '9005'
+          - name: SELDON_METRICS_PORT
+            value: '9006'
+          - name: SELDON_DRAINER_PORT
+            value: '9007'
+          - name: SELDON_SERVER_TYPE
+            value: triton
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MEMORY_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                containerName: triton
+                resource: requests.memory
+        image: docker.io/seldonio/seldon-agent:2.6.0
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            httpGet:
+              path: terminate
+              port: 9007
+        name: agent
+        ports:
+          - containerPort: 9501
+            name: grpc
+            protocol: TCP
+          - containerPort: 9001
+            name: http
+            protocol: TCP
+          - containerPort: 9006
+            name: metrics
+            protocol: TCP
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 1Gi
+        volumeMounts:
+          - mountPath: /mnt/agent
+            name: triton-models
+          - mountPath: /mnt/config
+            name: config-volume
+          - mountPath: /mnt/tracing
+            name: tracing-config-volume
+      - args:
+          - '--model-repository=$(SERVER_MODELS_DIR)'
+          - '--http-port=$(SERVER_HTTP_PORT)'
+          - '--grpc-port=$(SERVER_GRPC_PORT)'
+          - '--log-verbose=1'
+          - '--model-control-mode=explicit'
+          - '--backend-config=python,shm-default-byte-size=16777216'
+        command:
+          - /opt/tritonserver/bin/tritonserver
+        env:
+          - name: TRANSFORMERS_CACHE
+            value: /tmp/
+          - name: SERVER_HTTP_PORT
+            value: '9000'
+          - name: SERVER_GRPC_PORT
+            value: '9500'
+          - name: SERVER_MODELS_DIR
+            value: /mnt/agent/models
+          - name: LD_PRELOAD
+            value: /usr/lib/x86_64-linux-gnu/libtcmalloc.so.4
+        image: harbor.neoflex.ru/dognauts/tritonserver:21.08-py3-tap
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            httpGet:
+              path: terminate
+              port: 9007
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: server-http
+        name: triton
+        ports:
+          - containerPort: 9500
+            name: server-grpc
+            protocol: TCP
+          - containerPort: 9000
+            name: server-http
+            protocol: TCP
+          - containerPort: 8002
+            name: server-metrics
+            protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: server-http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            memory: 20Gi
+            nvidia.com/gpu: 1
+          requests:
+            cpu: 100m
+            memory: 1Gi
+        startupProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /v2/health/live
+            port: server-http
+          periodSeconds: 10
+        volumeMounts:
+          - mountPath: /mnt/agent
+            name: triton-models
+            readOnly: true
+          - mountPath: /dev/shm
+            name: dshm
+            readOnly: false
+    securityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+    serviceAccountName: seldon-server
+    terminationGracePeriodSeconds: 120
+    volumes:
+      - configMap:
+          name: seldon-agent
+        name: config-volume
+      - configMap:
+          name: seldon-tracing
+        name: tracing-config-volume
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+        name: dshm
+  volumeClaimTemplates:
+    - name: triton-models
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

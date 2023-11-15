@@ -1,0 +1,10 @@
+apiVersion: mlops.seldon.io/v1alpha1
+kind: Model
+metadata:
+  name: rugpt-v4
+  namespace: seldon-mesh
+spec:
+  requirements:
+    - triton
+  secretName: seldon-rclone-gs-public
+  storageUri: s3://models/
