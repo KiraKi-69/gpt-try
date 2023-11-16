@@ -6,7 +6,7 @@ import logging
 
 class TritonPythonModel:
     def initialize(self, args):
-        self.generator = pipeline("text-generation", model="Kira-Ki/pretrainRuGPT")
+        self.generator = pipeline("text-generation", model="sberbank-ai/rugpt3small_based_on_gpt2")
 
     def execute(self, requests):
         responses = []
